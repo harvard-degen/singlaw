@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Build outputs
+.next/
+out/
+dist/
+
+# Prisma
+apps/web/src/generated/
+
+# FAISS index (too large for git – use Railway volumes or object storage)
+apps/rag-service/faiss_index/
+
+# Misc
+.DS_Store
+*.log
+.turbo/

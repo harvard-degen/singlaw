@@ -1,0 +1,63 @@
+generator client {
+  provider   = "prisma-client-js"
+  output     = "../node_modules/.prisma/client"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+model User {
+  id                   String             @id @default(cuid())
+  clerkId              String             @unique
+  email                String             @unique
+  name                 String?
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  subscriptionStatus   SubscriptionStatus @default(TRIAL)
+  trialEndsAt          DateTime?
+  subscriptionEndsAt   DateTime?
+  queriesThisMonth     Int                @default(0)
+  queryResetDate       DateTime           @default(now())
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  queries Query[]
+
+  @@index([clerkId])
+  @@index([stripeCustomerId])
+}
+
+model Query {
+  id          String   @id @default(cuid())
+  userId      String
+  question    String   @db.Text
+  answer      String   @db.Text
+  citations   Json     @default("[]")
+  llmProvider String
+  latencyMs   Int
+  tokenCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([type])
+}
