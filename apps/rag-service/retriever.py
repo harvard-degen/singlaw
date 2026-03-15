@@ -1,70 +1,54 @@
 """
-FAISS retrieval using BGE-M3 embeddings.
-TODO (Day 5): Fork ExploreSingapore and wire real index here.
+FAISS retrieval using BGE-M3 + LangChain FAISS format.
+Index must be built with build_index.py (produces index.faiss + index.pkl).
 """
-
 import os
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Lazy-loaded globals
-_index = None
-_model = None
-_metadata = None
+_vectorstore = None
 
 
-def _load():
-    global _index, _model, _metadata
-    if _index is not None:
+def _load() -> None:
+    global _vectorstore
+    if _vectorstore is not None:
         return
 
-    import faiss
-    import json
-    from sentence_transformers import SentenceTransformer
+    from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+    from langchain_community.vectorstores import FAISS
 
-    index_path = os.environ.get("FAISS_INDEX_PATH", "faiss_index/index.faiss")
-    meta_path = os.environ.get("FAISS_META_PATH", "faiss_index/metadata.json")
-    model_name = os.environ.get(
-        "EMBEDDINGS_MODEL", "BAAI/bge-m3"
+    index_path = os.environ.get("FAISS_INDEX_PATH", "faiss_index_bgem3")
+    model_name = os.environ.get("EMBEDDINGS_MODEL", "BAAI/bge-m3")
+
+    logger.info(f"Loading embeddings: {model_name}")
+    embeddings = HuggingFaceBgeEmbeddings(
+        model_name=model_name,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
     )
 
-    logger.info(f"Loading FAISS index from {index_path}")
-    _index = faiss.read_index(index_path)
-
-    logger.info(f"Loading metadata from {meta_path}")
-    with open(meta_path) as f:
-        _metadata = json.load(f)
-
-    logger.info(f"Loading embeddings model {model_name}")
-    _model = SentenceTransformer(model_name)
+    logger.info(f"Loading FAISS index from: {index_path}")
+    _vectorstore = FAISS.load_local(
+        index_path, embeddings, allow_dangerous_deserialization=True
+    )
     logger.info("Retriever ready")
 
 
 def retrieve_chunks(question: str, top_k: int = 5) -> list[dict]:
-    """Return top_k chunks most relevant to the question."""
+    """Return top_k most relevant chunks with confidence scores."""
     _load()
 
-    import numpy as np
-
-    query_vec = _model.encode([question], normalize_embeddings=True)
-    query_vec = np.array(query_vec, dtype="float32")
-
-    distances, indices = _index.search(query_vec, top_k)
-
+    results = _vectorstore.similarity_search_with_score(question, k=top_k)
     chunks = []
-    for dist, idx in zip(distances[0], indices[0]):
-        if idx == -1:
-            continue
-        meta = _metadata[idx]
-        chunks.append(
-            {
-                "source": meta.get("source", "Unknown"),
-                "section": meta.get("section", ""),
-                "page": meta.get("page", 0),
-                "text": meta.get("text", ""),
-                "score": float(dist),
-            }
-        )
-
+    for doc, score in results:
+        confidence = 1.0 / (1.0 + score)
+        chunks.append({
+            "source": doc.metadata.get("source", "Unknown"),
+            "section": doc.metadata.get("section", ""),
+            "page": doc.metadata.get("page", 0),
+            "text": doc.page_content,
+            "score": float(score),
+            "confidence": round(confidence, 4),
+        })
     return chunks
